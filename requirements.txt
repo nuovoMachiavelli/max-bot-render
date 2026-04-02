@@ -1,0 +1,4 @@
+maxapi @ git+https://github.com/max-messenger/max-botapi-python.git
+gspread==6.1.2
+google-auth==2.35.0
+aiohttp==3.11.11
