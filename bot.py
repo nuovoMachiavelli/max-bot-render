@@ -3,7 +3,7 @@ import json
 import os
 from datetime import datetime
 from maxapi import Bot, Dispatcher
-from maxapi.types import Command, MessageCreated   # ← только то, что действительно есть
+from maxapi.types import Command, MessageCreated
 import gspread
 from google.oauth2.service_account import Credentials
 
@@ -14,7 +14,9 @@ MAIN_SHEET_ID = os.getenv("MAIN_SHEET_ID")
 GOOGLE_CREDS = json.loads(os.getenv("GOOGLE_CREDS") or "{}")
 BASE_WEBHOOK_URL = os.getenv("BASE_WEBHOOK_URL")
 WEBHOOK_PATH = os.getenv("WEBHOOK_PATH", "/webhook")
-WEBAPP_PORT = int(os.getenv("PORT", 8080))
+
+# Порт ОТ Render (обязательно!)
+PORT = int(os.getenv("PORT", 8080))
 
 # Таблицы менеджеров
 MANAGER_SHEETS = [
@@ -126,7 +128,6 @@ async def sync_clients(event: MessageCreated):
         await event.message.answer("Доступ запрещён.")
         return
     await event.message.answer("🔄 Запускаю синхронизацию...")
-    # ... (весь код функции sync_clients без изменений — оставил как было раньше)
     try:
         spreadsheet = await async_open(MAIN_SHEET_ID)
         clients = await async_worksheet(spreadsheet, "Clients")
@@ -176,7 +177,7 @@ async def sync_clients(event: MessageCreated):
         if new_rows:
             await async_append_rows(clients, new_rows)
         await event.message.answer(f"""✅ СИНХРОНИЗАЦИЯ ЗАВЕРШЕНА!
-Добавлено: {added}
+Добавлено новых: {added}
 Обновлено: {updated}""")
     except Exception as e:
         print(f"CRITICAL SYNC ERROR: {e}")
@@ -189,7 +190,6 @@ async def broadcast_cmd(event: MessageCreated):
         await event.message.answer("Доступ запрещён.")
         return
     await event.message.answer("🚀 Запускаю рассылку...")
-    # ... (весь код broadcast_cmd без изменений)
     try:
         spreadsheet = await async_open(MAIN_SHEET_ID)
         rassylka = await async_worksheet(spreadsheet, "Рассылка")
@@ -283,7 +283,7 @@ async def broadcast_cmd(event: MessageCreated):
 
 
 @dp.message_created(Command("start"))
-async def start(event: MessageCreated):
+async def start_cmd(event: MessageCreated):
     await event.message.answer("Привет! Напиши номер телефона цифрами.")
 
 
@@ -308,19 +308,19 @@ async def on_startup():
             scopes=["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
         )
         gc = gspread.authorize(creds)
-        print("✅ Google Sheets подключён успешно")
+        print("✅ Google Sheets подключён")
     except Exception as e:
         print(f"❌ Ошибка Google CREDS: {e}")
         raise
 
     if not BASE_WEBHOOK_URL:
-        print("❌ Не указан BASE_WEBHOOK_URL!")
+        print("❌ BASE_WEBHOOK_URL не указан в переменных окружения!")
         return
 
     webhook_url = f"{BASE_WEBHOOK_URL.rstrip('/')}{WEBHOOK_PATH}"
     try:
         await bot.set_webhook(webhook_url)
-        print(f"✅ Webhook установлен: {webhook_url}")
+        print(f"✅ Webhook установлен в MAX: {webhook_url}")
     except Exception as e:
         print(f"❌ Ошибка установки webhook: {e}")
         raise
@@ -331,15 +331,18 @@ async def main():
         print("❌ MAX_TOKEN не указан!")
         return
 
-    dp.startup.register(on_startup)
+    # Регистрируем запуск (on_startup)
+    dp.startup(on_startup)   # ← правильный способ сейчас
 
-    print("🚀 Запуск бота с handle_webhook...")
+    print(f"🚀 Запуск бота на порту {PORT}...")
+    print(f"📍 Webhook path: {WEBHOOK_PATH}")
+
+    # Запуск встроенного веб-сервера maxapi
     await dp.handle_webhook(
         bot=bot,
         host="0.0.0.0",
-        port=WEBAPP_PORT,
-        path=WEBHOOK_PATH,      # важно: передаём путь
-        webhook_url=BASE_WEBHOOK_URL  # базовый URL
+        port=PORT,           # ← важно для Render!
+        path=WEBHOOK_PATH
     )
 
 
