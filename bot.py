@@ -2,7 +2,8 @@ import asyncio
 import json
 import os
 from datetime import datetime
-from maxapi import Bot, Dispatcher, types, filters
+from maxapi import Bot, Dispatcher
+from maxapi.types import Command, MessageCreated, Update  # ← ИСПРАВЛЕНИЕ здесь
 import gspread
 from google.oauth2.service_account import Credentials
 from aiohttp import web
@@ -12,7 +13,7 @@ MAX_TOKEN = os.getenv("MAX_TOKEN")
 ADMIN_ID = os.getenv("ADMIN_ID")
 MAIN_SHEET_ID = os.getenv("MAIN_SHEET_ID")
 GOOGLE_CREDS = json.loads(os.getenv("GOOGLE_CREDS") or "{}")
-BASE_WEBHOOK_URL = os.getenv("BASE_WEBHOOK_URL")          # ← убрал плейсхолдер!
+BASE_WEBHOOK_URL = os.getenv("BASE_WEBHOOK_URL")
 WEBHOOK_PATH = os.getenv("WEBHOOK_PATH", "/webhook")
 WEBAPP_HOST = "0.0.0.0"
 WEBAPP_PORT = int(os.getenv("PORT", 8080))
@@ -61,7 +62,7 @@ async def async_append_rows(worksheet, rows_list):
 
 
 # ================= АВТОПРИВЯЗКА =================
-async def process_phone(phone_norm: str, event: types.MessageCreated):
+async def process_phone(phone_norm: str, event: MessageCreated):
     chat_id = event.message.chat_id if event.message else event.sender_id
     print(f"\n=== DEBUG ПРИВЯЗКА ===\nНомер: {phone_norm} | Chat ID: {chat_id}")
    
@@ -70,7 +71,6 @@ async def process_phone(phone_norm: str, event: types.MessageCreated):
         clients = await async_worksheet(spreadsheet, "Clients")
         clients_values = await asyncio.to_thread(clients.get_all_values)
        
-        # Поиск в таблицах менеджеров
         found_in = None
         region = ""
         client_name = ""
@@ -92,7 +92,6 @@ async def process_phone(phone_norm: str, event: types.MessageCreated):
             except:
                 continue
        
-        # Поиск в Clients
         row_index = None
         for i, row in enumerate(clients_values[1:], start=2):
             if isinstance(row, (list, tuple)) and len(row) > 0 and normalize_phone(row[0]) == phone_norm:
@@ -124,13 +123,12 @@ async def process_phone(phone_norm: str, event: types.MessageCreated):
 
 
 # ================= /sync =================
-@dp.message_created(filters.Command("sync"))
-async def sync_clients(event: types.MessageCreated):
+@dp.message_created(Command("sync"))          # ← ИСПРАВЛЕНО
+async def sync_clients(event: MessageCreated):
     if str(event.sender_id) != str(ADMIN_ID):
         await event.message.answer("Доступ запрещён.")
         return
     await event.message.answer("🔄 Запускаю оптимизированную синхронизацию...")
-    # (весь твой код /sync без изменений)
     try:
         spreadsheet = await async_open(MAIN_SHEET_ID)
         clients = await async_worksheet(spreadsheet, "Clients")
@@ -176,11 +174,7 @@ async def sync_clients(event: types.MessageCreated):
                 await event.message.answer(f"⚠️ Ошибка в таблице {idx}: {str(e)[:100]}")
                 continue
         if batch_updates:
-            await asyncio.to_thread(
-                clients.batch_update,
-                batch_updates,
-                value_input_option="RAW"
-            )
+            await asyncio.to_thread(clients.batch_update, batch_updates, value_input_option="RAW")
         if new_rows:
             await async_append_rows(clients, new_rows)
         await event.message.answer(f"""✅ УМНАЯ СИНХРОНИЗАЦИЯ ЗАВЕРШЕНА!
@@ -192,13 +186,14 @@ async def sync_clients(event: types.MessageCreated):
 
 
 # ================= /broadcast =================
-@dp.message_created(filters.Command("broadcast"))
-async def broadcast_cmd(event: types.MessageCreated):
+@dp.message_created(Command("broadcast"))     # ← ИСПРАВЛЕНО
+async def broadcast_cmd(event: MessageCreated):
     if str(event.sender_id) != str(ADMIN_ID):
         await event.message.answer("Доступ запрещён.")
         return
+   
     await event.message.answer("🚀 Запускаю оптимизированную рассылку...")
-    # (весь твой код /broadcast без изменений — оставил как был)
+   
     try:
         spreadsheet = await async_open(MAIN_SHEET_ID)
         rassylka = await async_worksheet(spreadsheet, "Рассылка")
@@ -296,15 +291,17 @@ async def broadcast_cmd(event: types.MessageCreated):
 
 
 # ================= /start =================
-@dp.message_created(filters.Command("start"))
-async def start(event: types.MessageCreated):
+@dp.message_created(Command("start"))         # ← ИСПРАВЛЕНО
+async def start(event: MessageCreated):
     await event.message.answer("Привет! Напиши номер телефона цифрами.")
 
 
-# ================= Обработка текста =================
-@dp.message_created(filters.Text)
-async def handle_manual_phone(event: types.MessageCreated):
-    phone_norm = normalize_phone(event.text)
+# ================= Обработка любого текста =================
+@dp.message_created()                         # ← без фильтра — ловит всё остальное
+async def handle_manual_phone(event: MessageCreated):
+    if not event.message or not event.message.text:
+        return
+    phone_norm = normalize_phone(event.message.text)
     if phone_norm:
         await event.message.answer("🔍 Проверяю номер...")
         await process_phone(phone_norm, event)
@@ -326,20 +323,23 @@ async def on_startup():
         print(f"❌ ОШИБКА Google CREDS: {e}")
         raise
 
+    if not BASE_WEBHOOK_URL:
+        print("❌ BASE_WEBHOOK_URL не указан!")
+        return
+
     webhook_url = f"{BASE_WEBHOOK_URL.rstrip('/')}{WEBHOOK_PATH}"
     try:
         await bot.set_webhook(webhook_url)
-        print(f"✅ Webhook успешно установлен в MAX: {webhook_url}")
+        print(f"✅ Webhook установлен: {webhook_url}")
     except Exception as e:
-        print(f"❌ ОШИБКА установки webhook: {e}")
+        print(f"❌ Ошибка установки webhook: {e}")
         raise
 
 
 async def webhook_handler(request):
-    """Обработчик входящих webhook от МАХ"""
     try:
         data = await request.json()
-        update = types.Update(**data)
+        update = Update(**data)
         await dp.feed_update(bot, update)
         return web.Response(status=200)
     except Exception as e:
@@ -348,37 +348,29 @@ async def webhook_handler(request):
 
 
 async def health_handler(request):
-    """Простая проверка здоровья для Render (ОБЯЗАТЕЛЬНО!)"""
     return web.Response(text="OK", status=200)
 
 
 async def main():
-    # Проверяем обязательные переменные
     if not MAX_TOKEN:
         print("❌ Укажи MAX_TOKEN!")
         return
-    if not BASE_WEBHOOK_URL:
-        print("❌ Укажи BASE_WEBHOOK_URL (реальный адрес на Render)!")
-        return
-    if not ADMIN_ID or not MAIN_SHEET_ID:
-        print("❌ Укажи ADMIN_ID и MAIN_SHEET_ID!")
 
     dp.startup.register(on_startup)
-    print("✅ Бот запускается | MAX + Webhook")
+    print("✅ Бот запускается...")
 
     app = web.Application()
     app.router.add_post(WEBHOOK_PATH, webhook_handler)
-    app.router.add_get("/", health_handler)          # ← ЭТО ИСПРАВЛЕНИЕ health check
-    app.router.add_get("/health", health_handler)    # на всякий случай
+    app.router.add_get("/", health_handler)
+    app.router.add_get("/health", health_handler)
 
     runner = web.AppRunner(app)
     await runner.setup()
     site = web.TCPSite(runner, host=WEBAPP_HOST, port=WEBAPP_PORT)
     await site.start()
    
-    print(f"🌐 Сервер запущен на {WEBAPP_HOST}:{WEBAPP_PORT}")
-    print(f"📍 Webhook: {WEBHOOK_PATH}")
-    print(f"📍 Health check: / и /health")
+    print(f"🌐 Сервер запущен на порту {WEBAPP_PORT}")
+    print(f"📍 Webhook path: {WEBHOOK_PATH}")
    
     await asyncio.Event().wait()
 
