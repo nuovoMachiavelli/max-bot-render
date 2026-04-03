@@ -1,4 +1,4 @@
-maxapi
+aiohttp
 gspread
 google-auth
-aiohttp
+python-dotenv
