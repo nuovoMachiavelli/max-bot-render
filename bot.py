@@ -93,7 +93,8 @@ async def on_startup():
 
 # ================= MAIN =================
 async def main():
-    dp.startup.register(on_startup)
+    # 👉 ВАЖНО: просто вызываем руками
+    await on_startup()
 
     app = web.Application()
     app.router.add_get("/", health)
