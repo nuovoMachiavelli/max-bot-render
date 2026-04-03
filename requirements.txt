@@ -1,4 +1,4 @@
-maxapi @ git+https://github.com/max-messenger/max-botapi-python.git
+maxapi
 gspread
 google-auth
 aiohttp
