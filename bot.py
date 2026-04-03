@@ -3,19 +3,17 @@ import json
 import os
 from datetime import datetime
 from maxapi import Bot, Dispatcher
-from maxapi.types import Command, MessageCreated, Update  # ← ИСПРАВЛЕНИЕ здесь
+from maxapi.types import Command, MessageCreated   # ← только то, что действительно есть
 import gspread
 from google.oauth2.service_account import Credentials
-from aiohttp import web
 
-# ================= НАСТРОЙКИ ИЗ ПЕРЕМЕННЫХ ОКРУЖЕНИЯ =================
+# ================= НАСТРОЙКИ =================
 MAX_TOKEN = os.getenv("MAX_TOKEN")
 ADMIN_ID = os.getenv("ADMIN_ID")
 MAIN_SHEET_ID = os.getenv("MAIN_SHEET_ID")
 GOOGLE_CREDS = json.loads(os.getenv("GOOGLE_CREDS") or "{}")
 BASE_WEBHOOK_URL = os.getenv("BASE_WEBHOOK_URL")
 WEBHOOK_PATH = os.getenv("WEBHOOK_PATH", "/webhook")
-WEBAPP_HOST = "0.0.0.0"
 WEBAPP_PORT = int(os.getenv("PORT", 8080))
 
 # Таблицы менеджеров
@@ -35,7 +33,6 @@ gc = None
 
 
 def normalize_phone(raw):
-    """Нормализация номера телефона к формату 7XXXXXXXXXX"""
     if not raw:
         return None
     s = ''.join(filter(str.isdigit, str(raw).strip()))
@@ -122,13 +119,14 @@ async def process_phone(phone_norm: str, event: MessageCreated):
         await event.message.answer("❌ Ошибка при обработке номера.")
 
 
-# ================= /sync =================
-@dp.message_created(Command("sync"))          # ← ИСПРАВЛЕНО
+# ================= КОМАНДЫ =================
+@dp.message_created(Command("sync"))
 async def sync_clients(event: MessageCreated):
     if str(event.sender_id) != str(ADMIN_ID):
         await event.message.answer("Доступ запрещён.")
         return
-    await event.message.answer("🔄 Запускаю оптимизированную синхронизацию...")
+    await event.message.answer("🔄 Запускаю синхронизацию...")
+    # ... (весь код функции sync_clients без изменений — оставил как было раньше)
     try:
         spreadsheet = await async_open(MAIN_SHEET_ID)
         clients = await async_worksheet(spreadsheet, "Clients")
@@ -177,23 +175,21 @@ async def sync_clients(event: MessageCreated):
             await asyncio.to_thread(clients.batch_update, batch_updates, value_input_option="RAW")
         if new_rows:
             await async_append_rows(clients, new_rows)
-        await event.message.answer(f"""✅ УМНАЯ СИНХРОНИЗАЦИЯ ЗАВЕРШЕНА!
-Добавлено новых: {added}
+        await event.message.answer(f"""✅ СИНХРОНИЗАЦИЯ ЗАВЕРШЕНА!
+Добавлено: {added}
 Обновлено: {updated}""")
     except Exception as e:
         print(f"CRITICAL SYNC ERROR: {e}")
         await event.message.answer(f"❌ Ошибка синхронизации: {str(e)}")
 
 
-# ================= /broadcast =================
-@dp.message_created(Command("broadcast"))     # ← ИСПРАВЛЕНО
+@dp.message_created(Command("broadcast"))
 async def broadcast_cmd(event: MessageCreated):
     if str(event.sender_id) != str(ADMIN_ID):
         await event.message.answer("Доступ запрещён.")
         return
-   
-    await event.message.answer("🚀 Запускаю оптимизированную рассылку...")
-   
+    await event.message.answer("🚀 Запускаю рассылку...")
+    # ... (весь код broadcast_cmd без изменений)
     try:
         spreadsheet = await async_open(MAIN_SHEET_ID)
         rassylka = await async_worksheet(spreadsheet, "Рассылка")
@@ -251,14 +247,11 @@ async def broadcast_cmd(event: MessageCreated):
                 try:
                     await bot.send_message(chat_id=int(tg_id), text=text)
                     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                   
                     status_updates.append({"range": f"I{i}", "values": [["отправлено"]]})
                     time_updates.append({"range": f"J{i}", "values": [[now]]})
-                   
                     sent += 1
                     batch_counter += 2
                     await asyncio.sleep(0.5)
-                   
                 except Exception as e:
                     err_text = str(e)[:80]
                     status_updates.append({"range": f"I{i}", "values": [[f"ошибка: {err_text}"]]})
@@ -284,21 +277,18 @@ async def broadcast_cmd(event: MessageCreated):
 ✅ Отправлено: {sent}
 ⏭ Пропущено: {skipped}
 ❌ Ошибок: {errors}""")
-       
     except Exception as e:
         print(f"CRITICAL BROADCAST ERROR: {e}")
-        await event.message.answer(f"❌ Критическая ошибка рассылки: {str(e)}")
+        await event.message.answer(f"❌ Ошибка рассылки: {str(e)}")
 
 
-# ================= /start =================
-@dp.message_created(Command("start"))         # ← ИСПРАВЛЕНО
+@dp.message_created(Command("start"))
 async def start(event: MessageCreated):
     await event.message.answer("Привет! Напиши номер телефона цифрами.")
 
 
-# ================= Обработка любого текста =================
-@dp.message_created()                         # ← без фильтра — ловит всё остальное
-async def handle_manual_phone(event: MessageCreated):
+@dp.message_created()
+async def handle_text(event: MessageCreated):
     if not event.message or not event.message.text:
         return
     phone_norm = normalize_phone(event.message.text)
@@ -306,7 +296,7 @@ async def handle_manual_phone(event: MessageCreated):
         await event.message.answer("🔍 Проверяю номер...")
         await process_phone(phone_norm, event)
     else:
-        await event.message.answer("❌ Номер не распознан. Отправь номер цифрами, например: 79123456789")
+        await event.message.answer("❌ Номер не распознан. Отправь только цифры, например: 79123456789")
 
 
 # ================= ЗАПУСК =================
@@ -318,13 +308,13 @@ async def on_startup():
             scopes=["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
         )
         gc = gspread.authorize(creds)
-        print("✅ Google Sheets подключён")
+        print("✅ Google Sheets подключён успешно")
     except Exception as e:
-        print(f"❌ ОШИБКА Google CREDS: {e}")
+        print(f"❌ Ошибка Google CREDS: {e}")
         raise
 
     if not BASE_WEBHOOK_URL:
-        print("❌ BASE_WEBHOOK_URL не указан!")
+        print("❌ Не указан BASE_WEBHOOK_URL!")
         return
 
     webhook_url = f"{BASE_WEBHOOK_URL.rstrip('/')}{WEBHOOK_PATH}"
@@ -336,43 +326,21 @@ async def on_startup():
         raise
 
 
-async def webhook_handler(request):
-    try:
-        data = await request.json()
-        update = Update(**data)
-        await dp.feed_update(bot, update)
-        return web.Response(status=200)
-    except Exception as e:
-        print(f"Webhook error: {e}")
-        return web.Response(status=500)
-
-
-async def health_handler(request):
-    return web.Response(text="OK", status=200)
-
-
 async def main():
     if not MAX_TOKEN:
-        print("❌ Укажи MAX_TOKEN!")
+        print("❌ MAX_TOKEN не указан!")
         return
 
     dp.startup.register(on_startup)
-    print("✅ Бот запускается...")
 
-    app = web.Application()
-    app.router.add_post(WEBHOOK_PATH, webhook_handler)
-    app.router.add_get("/", health_handler)
-    app.router.add_get("/health", health_handler)
-
-    runner = web.AppRunner(app)
-    await runner.setup()
-    site = web.TCPSite(runner, host=WEBAPP_HOST, port=WEBAPP_PORT)
-    await site.start()
-   
-    print(f"🌐 Сервер запущен на порту {WEBAPP_PORT}")
-    print(f"📍 Webhook path: {WEBHOOK_PATH}")
-   
-    await asyncio.Event().wait()
+    print("🚀 Запуск бота с handle_webhook...")
+    await dp.handle_webhook(
+        bot=bot,
+        host="0.0.0.0",
+        port=WEBAPP_PORT,
+        path=WEBHOOK_PATH,      # важно: передаём путь
+        webhook_url=BASE_WEBHOOK_URL  # базовый URL
+    )
 
 
 if __name__ == "__main__":
