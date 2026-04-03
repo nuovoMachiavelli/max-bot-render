@@ -3,7 +3,6 @@ import json
 import os
 from datetime import datetime
 from maxapi import Bot, Dispatcher, types, filters
-from maxapi.webhook import WebhookServer
 import gspread
 from google.oauth2.service_account import Credentials
 from aiohttp import web
@@ -340,7 +339,7 @@ async def broadcast_cmd(event: types.MessageCreated):
 # ================= start и ручной ввод номера (как в исходном ТГ боте) =================
 @dp.message_created(filters.Command("start"))
 async def start(event: types.MessageCreated):
-    await event.message.answer("Привет! Нажми кнопку или напиши номер цифрами.")
+    await event.message.answer("Привет! Напиши номер телефона цифрами.")
 
 
 @dp.message_created(filters.Text)
@@ -353,7 +352,7 @@ async def handle_manual_phone(event: types.MessageCreated):
         await event.message.answer("❌ Номер не распознан. Отправь номер цифрами, например: 79123456789")
 
 
-# ================= ЗАПУСК =================
+# ================= ЗАПУСК СО СТАНДАРТНЫМ WEBHOOK =================
 async def on_startup():
     global gc
     creds = Credentials.from_service_account_info(
@@ -361,8 +360,23 @@ async def on_startup():
         scopes=["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
     )
     gc = gspread.authorize(creds)
-    await bot.set_webhook(f"{BASE_WEBHOOK_URL.rstrip('/')}{WEBHOOK_PATH}")
-    print(f"✅ Webhook установлен")
+    
+    # Устанавливаем webhook
+    webhook_url = f"{BASE_WEBHOOK_URL.rstrip('/')}{WEBHOOK_PATH}"
+    await bot.set_webhook(webhook_url)
+    print(f"✅ Webhook установлен: {webhook_url}")
+
+
+async def webhook_handler(request):
+    """Обработчик входящих webhook от Мах"""
+    try:
+        data = await request.json()
+        update = types.Update(**data)
+        await dp.feed_update(bot, update)
+        return web.Response(status=200)
+    except Exception as e:
+        print(f"Webhook error: {e}")
+        return web.Response(status=500)
 
 
 async def main():
@@ -370,17 +384,27 @@ async def main():
         print("❌ Укажи BASE_WEBHOOK_URL!")
         return
     
+    if not MAX_TOKEN:
+        print("❌ Укажи MAX_TOKEN!")
+        return
+    
+    # Регистрируем startup
     dp.startup.register(on_startup)
     print("✅ Бот запущен | Мах + Webhook")
     
+    # Создаём aiohttp приложение
     app = web.Application()
-    webhook_handler = WebhookServer(dispatcher=dp, bot=bot)
-    webhook_handler.register(app, path=WEBHOOK_PATH)
+    app.router.add_post(WEBHOOK_PATH, webhook_handler)
    
     runner = web.AppRunner(app)
     await runner.setup()
     site = web.TCPSite(runner, host=WEBAPP_HOST, port=WEBAPP_PORT)
     await site.start()
+    
+    print(f"🌐 Сервер запущен на {WEBAPP_HOST}:{WEBAPP_PORT}")
+    print(f"📍 Webhook endpoint: {WEBHOOK_PATH}")
+    
+    # Держим сервер запущенным
     await asyncio.Event().wait()
 
 
