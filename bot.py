@@ -70,9 +70,12 @@ async def error_handler(event: types.ErrorEvent):
         pass
 
 
-# ================= АВТОПРИВЯЗКА (как в исходном ТГ боте) =================
+# ================= АВТОПРИВЯЗКА =================
 async def process_phone(phone_norm: str, event: types.MessageCreated):
-    print(f"\n=== DEBUG ПРИВЯЗКА ===\nНомер: {phone_norm} | Chat ID: {event.chat_id}")
+    # Получаем chat_id из сообщения
+    chat_id = event.message.chat_id if event.message else event.sender_id
+    print(f"\n=== DEBUG ПРИВЯЗКА ===\nНомер: {phone_norm} | Chat ID: {chat_id}")
+    
     try:
         spreadsheet = await async_open(MAIN_SHEET_ID)
         clients = await async_worksheet(spreadsheet, "Clients")
@@ -108,9 +111,10 @@ async def process_phone(phone_norm: str, event: types.MessageCreated):
                 break
         
         if found_in:
+            chat_id_str = str(chat_id)
             if row_index:
                 await asyncio.gather(
-                    asyncio.to_thread(clients.update, f"B{row_index}", [[str(event.chat_id)]]),
+                    asyncio.to_thread(clients.update, f"B{row_index}", [[chat_id_str]]),
                     asyncio.to_thread(clients.update, f"C{row_index}", [[client_name]]),
                     asyncio.to_thread(clients.update, f"D{row_index}", [["привязан"]]),
                     asyncio.to_thread(clients.update, f"E{row_index}", [[found_in]]),
@@ -119,7 +123,7 @@ async def process_phone(phone_norm: str, event: types.MessageCreated):
                 await event.message.answer("✅ Вы успешно привязаны! Данные обновлены.")
             else:
                 await asyncio.to_thread(clients.append_row, [
-                    phone_norm, str(event.chat_id), client_name, "привязан", found_in, region
+                    phone_norm, chat_id_str, client_name, "привязан", found_in, region
                 ])
                 await event.message.answer("✅ Вы успешно привязаны!")
             return
@@ -130,7 +134,7 @@ async def process_phone(phone_norm: str, event: types.MessageCreated):
         await event.message.answer("❌ Ошибка при обработке номера.")
 
 
-# ================= УМНЫЙ /sync — ОБНОВЛЯЕТ ФИО (как в исходном ТГ боте) =================
+# ================= /sync =================
 @dp.message_created(filters.Command("sync"))
 async def sync_clients(event: types.MessageCreated):
     if str(event.sender_id) != str(ADMIN_ID):
@@ -143,7 +147,6 @@ async def sync_clients(event: types.MessageCreated):
         spreadsheet = await async_open(MAIN_SHEET_ID)
         clients = await async_worksheet(spreadsheet, "Clients")
         
-        # Загружаем текущих клиентов один раз
         values = await asyncio.to_thread(clients.get_all_values)
         existing = {}
         for i, row in enumerate(values[1:], start=2):
@@ -177,7 +180,6 @@ async def sync_clients(event: types.MessageCreated):
 
                     if phone_norm in existing:
                         r = existing[phone_norm]
-                        # Обновляем C, E, F одной операцией (D пропускаем)
                         batch_updates.append({
                             "range": f"C{r}:F{r}",
                             "values": [[client_name, None, f"Таблица {idx}", region]]
@@ -190,7 +192,6 @@ async def sync_clients(event: types.MessageCreated):
                 await event.message.answer(f"⚠️ Ошибка в таблице {idx}: {str(e)[:100]}")
                 continue
 
-        # === ОДИН batch-запрос вместо сотен ===
         if batch_updates:
             await asyncio.to_thread(
                 clients.batch_update,
@@ -212,7 +213,7 @@ async def sync_clients(event: types.MessageCreated):
         await event.message.answer(f"❌ Ошибка синхронизации: {str(e)}")
 
 
-# ================= ОПТИМИЗИРОВАННАЯ РАССЫЛКА (как в исходном ТГ боте) =================
+# ================= /broadcast =================
 @dp.message_created(filters.Command("broadcast"))
 async def broadcast_cmd(event: types.MessageCreated):
     if str(event.sender_id) != str(ADMIN_ID):
@@ -226,11 +227,9 @@ async def broadcast_cmd(event: types.MessageCreated):
         rassylka = await async_worksheet(spreadsheet, "Рассылка")
         clients_sheet = await async_worksheet(spreadsheet, "Clients")
         
-        # Загружаем данные
         data = await asyncio.to_thread(rassylka.get_all_values)
         clients_data = await asyncio.to_thread(clients_sheet.get_all_values)
         
-        # Создаём маппинг телефон → chat_id
         phone_to_tg = {}
         for row in clients_data[1:]:
             if isinstance(row, (list, tuple)) and len(row) > 1:
@@ -240,7 +239,6 @@ async def broadcast_cmd(event: types.MessageCreated):
                     if tg_id and tg_id != "0":
                         phone_to_tg[phone_norm] = tg_id
         
-        # Собираем batch-обновления здесь
         status_updates = []
         time_updates = []
         
@@ -308,7 +306,6 @@ async def broadcast_cmd(event: types.MessageCreated):
                     errors += 1
                     batch_counter += 1
             
-            # Каждые 50 операций — сбрасываем batch
             if batch_counter >= 50:
                 if status_updates:
                     await asyncio.to_thread(rassylka.batch_update, status_updates, value_input_option="RAW")
@@ -319,7 +316,6 @@ async def broadcast_cmd(event: types.MessageCreated):
                 batch_counter = 0
                 await asyncio.sleep(1)
         
-        # Финальный сброс оставшихся обновлений
         if status_updates:
             await asyncio.to_thread(rassylka.batch_update, status_updates, value_input_option="RAW")
         if time_updates:
@@ -336,12 +332,13 @@ async def broadcast_cmd(event: types.MessageCreated):
         await event.message.answer(f"❌ Критическая ошибка рассылки: {str(e)}")
 
 
-# ================= start и ручной ввод номера (как в исходном ТГ боте) =================
+# ================= /start =================
 @dp.message_created(filters.Command("start"))
 async def start(event: types.MessageCreated):
     await event.message.answer("Привет! Напиши номер телефона цифрами.")
 
 
+# ================= Обработка текста =================
 @dp.message_created(filters.Text)
 async def handle_manual_phone(event: types.MessageCreated):
     phone_norm = normalize_phone(event.text)
@@ -352,7 +349,7 @@ async def handle_manual_phone(event: types.MessageCreated):
         await event.message.answer("❌ Номер не распознан. Отправь номер цифрами, например: 79123456789")
 
 
-# ================= ЗАПУСК СО СТАНДАРТНЫМ WEBHOOK =================
+# ================= ЗАПУСК =================
 async def on_startup():
     global gc
     creds = Credentials.from_service_account_info(
@@ -361,7 +358,6 @@ async def on_startup():
     )
     gc = gspread.authorize(creds)
     
-    # Устанавливаем webhook
     webhook_url = f"{BASE_WEBHOOK_URL.rstrip('/')}{WEBHOOK_PATH}"
     await bot.set_webhook(webhook_url)
     print(f"✅ Webhook установлен: {webhook_url}")
@@ -388,11 +384,9 @@ async def main():
         print("❌ Укажи MAX_TOKEN!")
         return
     
-    # Регистрируем startup
     dp.startup.register(on_startup)
     print("✅ Бот запущен | Мах + Webhook")
     
-    # Создаём aiohttp приложение
     app = web.Application()
     app.router.add_post(WEBHOOK_PATH, webhook_handler)
    
@@ -404,7 +398,6 @@ async def main():
     print(f"🌐 Сервер запущен на {WEBAPP_HOST}:{WEBAPP_PORT}")
     print(f"📍 Webhook endpoint: {WEBHOOK_PATH}")
     
-    # Держим сервер запущенным
     await asyncio.Event().wait()
 
 
