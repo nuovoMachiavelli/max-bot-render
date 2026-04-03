@@ -1,33 +1,31 @@
 import asyncio
 import json
 import os
-from datetime import datetime
 from aiohttp import web
+import socket
 
-from maxapi import Bot, Dispatcher, types, filters
+from maxapi import Bot, Dispatcher, types
 import gspread
 from google.oauth2.service_account import Credentials
 
 # ================= НАСТРОЙКИ =================
 MAX_TOKEN = os.getenv("MAX_TOKEN")
-ADMIN_ID = os.getenv("ADMIN_ID")
-MAIN_SHEET_ID = os.getenv("MAIN_SHEET_ID")
+BASE_WEBHOOK_URL = os.getenv("BASE_WEBHOOK_URL")
 GOOGLE_CREDS = json.loads(os.getenv("GOOGLE_CREDS") or "{}")
 
-BASE_WEBHOOK_URL = os.getenv("BASE_WEBHOOK_URL")
 WEBHOOK_PATH = "/webhook"
-
 WEBAPP_HOST = "0.0.0.0"
-WEBAPP_PORT = int(os.getenv("PORT", 8080))
+WEBAPP_PORT = int(os.getenv("PORT", 10000))  # важно для Render
 
 bot = Bot(MAX_TOKEN)
 dp = Dispatcher()
 gc = None
 
-# ================= DEBUG =================
+# ================= ПРОВЕРКИ =================
 print("🚀 STARTING BOT...")
 print("TOKEN:", str(MAX_TOKEN)[:10])
 print("WEBHOOK URL:", BASE_WEBHOOK_URL)
+print("PORT:", WEBAPP_PORT)
 
 if not MAX_TOKEN:
     raise ValueError("❌ MAX_TOKEN не задан")
@@ -58,14 +56,20 @@ async def webhook_handler(request):
         print("❌ WEBHOOK ERROR:", e)
         return web.Response(status=500)
 
-# ================= ОБРАБОТЧИКИ =================
+# ================= ОБРАБОТКА СООБЩЕНИЙ =================
 @dp.message_created()
-async def debug_all(event: types.MessageCreated):
+async def handle_all_messages(event: types.MessageCreated):
     print("🔥 EVENT:", event)
 
-@dp.message_created(filters.Command("start"))
-async def start(event: types.MessageCreated):
-    await event.message.answer("Привет! Бот работает ✅")
+    try:
+        text = event.message.text.strip()
+    except:
+        text = ""
+
+    if text.lower() == "/start":
+        await event.message.answer("Привет! Бот работает ✅")
+    else:
+        await event.message.answer(f"Ты написал: {text}")
 
 # ================= STARTUP =================
 async def on_startup():
@@ -101,7 +105,9 @@ async def main():
     site = web.TCPSite(runner, host=WEBAPP_HOST, port=WEBAPP_PORT)
     await site.start()
 
-    print(f"🌐 SERVER STARTED: {WEBAPP_PORT}")
+    print(f"✅ SERVER RUNNING ON PORT {WEBAPP_PORT}")
+    print("👉 Render должен увидеть этот порт")
+    print("HOSTNAME:", socket.gethostname())
 
     await asyncio.Event().wait()
 
