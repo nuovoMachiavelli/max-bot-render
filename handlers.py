@@ -145,10 +145,10 @@ async def sync_command(admin_id: int):
         print(f"SYNC ERROR: {e}")
         await max_client.send_message(admin_id, f"❌ Ошибка синхронизации: {str(e)}")
 
-# ---------- Команда /broadcast (только админ) ----------
+# ---------- Команда /broadcast (только админ) - ИСПРАВЛЕНА ----------
 async def broadcast_command(admin_id: int):
-    """Рассылка из листа 'Рассылка' по клиентам с обновлением статусов batch-запросами."""
-    await max_client.send_message(admin_id, "🚀 Запускаю оптимизированную рассылку...")
+    """Рассылка из листа 'Рассылка': текст сообщения берётся ТОЛЬКО из колонки H (индекс 7). Пустые сообщения пропускаются."""
+    await max_client.send_message(admin_id, "🚀 Запускаю рассылку (только из колонки 'сообщение')...")
     try:
         spreadsheet = await async_open(MAIN_SHEET_ID)
         rassylka_ws = await async_worksheet(spreadsheet, "Рассылка")
@@ -157,7 +157,7 @@ async def broadcast_command(admin_id: int):
         data = await async_get_all_values(rassylka_ws)
         clients_data = await async_get_all_values(clients_ws)
 
-        # Маппинг телефон → max_user_id (chat id)
+        # Маппинг телефон → max_user_id
         phone_to_user = {}
         for row in clients_data[1:]:
             if len(row) > 1:
@@ -173,7 +173,8 @@ async def broadcast_command(admin_id: int):
         status_updates = []
         time_updates = []
         sent = 0
-        skipped = 0
+        skipped_no_text = 0
+        skipped_no_id = 0
         errors = 0
         batch_counter = 0
 
@@ -183,27 +184,30 @@ async def broadcast_command(admin_id: int):
             status = str(row[8]).strip().lower() if len(row) > 8 else ""
             if status not in ("новый", ""):
                 continue
-            phone_raw = str(row[2]) if len(row) > 2 else ""
-            shop_number = str(row[4]).strip() if len(row) > 4 else "—"
-            amount = str(row[5]).strip() if len(row) > 5 else "—"
-            link = str(row[6]).strip() if len(row) > 6 else ""
-            period = str(row[7]).strip() if len(row) > 7 else "—"
 
+            # ----- БЕРЁМ ТЕКСТ ТОЛЬКО ИЗ КОЛОНКИ H (индекс 7) -----
+            message_text = str(row[7]).strip() if len(row) > 7 and row[7] else ""
+
+            # Если текст пустой – пропускаем, ставим статус "нет текста"
+            if not message_text:
+                status_updates.append({"range": f"I{i}", "values": [["нет текста"]]})
+                skipped_no_text += 1
+                batch_counter += 1
+                continue
+
+            phone_raw = str(row[2]) if len(row) > 2 else ""
             phone_norm = normalize_phone(phone_raw)
             if not phone_norm:
                 continue
+
             user_id = phone_to_user.get(phone_norm)
             if not user_id:
                 status_updates.append({"range": f"I{i}", "values": [["нет MAX ID"]]})
-                skipped += 1
+                skipped_no_id += 1
                 batch_counter += 1
             else:
-                text = f"""Оплата за магазин {shop_number}
-Сумма {amount}
-За период {period}
-{link}"""
                 try:
-                    await max_client.send_message(user_id, text)
+                    await max_client.send_message(user_id, message_text)
                     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                     status_updates.append({"range": f"I{i}", "values": [["отправлено"]]})
                     time_updates.append({"range": f"J{i}", "values": [[now]]})
@@ -233,7 +237,8 @@ async def broadcast_command(admin_id: int):
 
         await max_client.send_message(admin_id, f"""🎉 РАССЫЛКА ЗАВЕРШЕНА!
 ✅ Отправлено: {sent}
-⏭ Пропущено: {skipped}
+⏭ Пропущено (нет текста в H): {skipped_no_text}
+⏭ Пропущено (нет MAX ID): {skipped_no_id}
 ❌ Ошибок: {errors}""")
     except Exception as e:
         print(f"BROADCAST ERROR: {e}")
