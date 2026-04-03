@@ -12,12 +12,12 @@ MAX_TOKEN = os.getenv("MAX_TOKEN")
 ADMIN_ID = os.getenv("ADMIN_ID")
 MAIN_SHEET_ID = os.getenv("MAIN_SHEET_ID")
 GOOGLE_CREDS = json.loads(os.getenv("GOOGLE_CREDS") or "{}")
-BASE_WEBHOOK_URL = os.getenv("BASE_WEBHOOK_URL", "https://your-render-url.onrender.com")
+BASE_WEBHOOK_URL = os.getenv("BASE_WEBHOOK_URL")          # ← убрал плейсхолдер!
 WEBHOOK_PATH = os.getenv("WEBHOOK_PATH", "/webhook")
 WEBAPP_HOST = "0.0.0.0"
 WEBAPP_PORT = int(os.getenv("PORT", 8080))
 
-# Таблицы менеджеров (те же что в исходном ТГ боте)
+# Таблицы менеджеров
 MANAGER_SHEETS = [
     "1uURwa7q2o_PSzqkXAvobFk-iy1gS9k4JGFmevF1O7NU",
     "1od2y0ZwNpe7myLZfXqgN_Dpwx4fG2g69ByYTW-eECwU",
@@ -62,15 +62,14 @@ async def async_append_rows(worksheet, rows_list):
 
 # ================= АВТОПРИВЯЗКА =================
 async def process_phone(phone_norm: str, event: types.MessageCreated):
-    # Получаем chat_id из сообщения
     chat_id = event.message.chat_id if event.message else event.sender_id
     print(f"\n=== DEBUG ПРИВЯЗКА ===\nНомер: {phone_norm} | Chat ID: {chat_id}")
-    
+   
     try:
         spreadsheet = await async_open(MAIN_SHEET_ID)
         clients = await async_worksheet(spreadsheet, "Clients")
         clients_values = await asyncio.to_thread(clients.get_all_values)
-        
+       
         # Поиск в таблицах менеджеров
         found_in = None
         region = ""
@@ -92,14 +91,14 @@ async def process_phone(phone_norm: str, event: types.MessageCreated):
                     break
             except:
                 continue
-        
+       
         # Поиск в Clients
         row_index = None
         for i, row in enumerate(clients_values[1:], start=2):
             if isinstance(row, (list, tuple)) and len(row) > 0 and normalize_phone(row[0]) == phone_norm:
                 row_index = i
                 break
-        
+       
         if found_in:
             chat_id_str = str(chat_id)
             if row_index:
@@ -117,7 +116,7 @@ async def process_phone(phone_norm: str, event: types.MessageCreated):
                 ])
                 await event.message.answer("✅ Вы успешно привязаны!")
             return
-        
+       
         await event.message.answer("❌ К сожалению, ваш номер не найден в базе.")
     except Exception as e:
         print(f"CRITICAL ERROR в process_phone: {e}")
@@ -130,13 +129,12 @@ async def sync_clients(event: types.MessageCreated):
     if str(event.sender_id) != str(ADMIN_ID):
         await event.message.answer("Доступ запрещён.")
         return
-
-    await event.message.answer("🔄 Запускаю оптимизированную синхронизацию (batch_update)...")
-
+    await event.message.answer("🔄 Запускаю оптимизированную синхронизацию...")
+    # (весь твой код /sync без изменений)
     try:
         spreadsheet = await async_open(MAIN_SHEET_ID)
         clients = await async_worksheet(spreadsheet, "Clients")
-        
+       
         values = await asyncio.to_thread(clients.get_all_values)
         existing = {}
         for i, row in enumerate(values[1:], start=2):
@@ -144,30 +142,26 @@ async def sync_clients(event: types.MessageCreated):
                 phone_norm = normalize_phone(row[0])
                 if phone_norm:
                     existing[phone_norm] = i
-
         new_rows = []
         batch_updates = []
         updated = 0
         added = 0
-
         for idx, sid in enumerate(MANAGER_SHEETS, 1):
             await event.message.answer(f"→ Проверяю таблицу менеджера {idx}/7...")
             try:
                 s = await async_open(sid)
                 sheet = await async_worksheet(s, "Общий")
                 data = await asyncio.to_thread(sheet.get_all_values)
-
                 for row in data[1:]:
                     if not isinstance(row, (list, tuple)) or len(row) < 6:
                         continue
-                    
+                   
                     phone_raw = str(row[4]) if len(row) > 4 else ""
                     region = str(row[1]).strip() if len(row) > 1 else ""
                     client_name = str(row[5]).strip() if len(row) > 5 else ""
                     phone_norm = normalize_phone(phone_raw)
                     if not phone_norm:
                         continue
-
                     if phone_norm in existing:
                         r = existing[phone_norm]
                         batch_updates.append({
@@ -181,23 +175,17 @@ async def sync_clients(event: types.MessageCreated):
             except Exception as e:
                 await event.message.answer(f"⚠️ Ошибка в таблице {idx}: {str(e)[:100]}")
                 continue
-
         if batch_updates:
             await asyncio.to_thread(
                 clients.batch_update,
                 batch_updates,
                 value_input_option="RAW"
             )
-
         if new_rows:
             await async_append_rows(clients, new_rows)
-
         await event.message.answer(f"""✅ УМНАЯ СИНХРОНИЗАЦИЯ ЗАВЕРШЕНА!
-
 Добавлено новых: {added}
-Обновлено ФИО/регион/источник: {updated}
-(все обновления — 1 запрос к Google)""")
-
+Обновлено: {updated}""")
     except Exception as e:
         print(f"CRITICAL SYNC ERROR: {e}")
         await event.message.answer(f"❌ Ошибка синхронизации: {str(e)}")
@@ -209,17 +197,16 @@ async def broadcast_cmd(event: types.MessageCreated):
     if str(event.sender_id) != str(ADMIN_ID):
         await event.message.answer("Доступ запрещён.")
         return
-    
     await event.message.answer("🚀 Запускаю оптимизированную рассылку...")
-    
+    # (весь твой код /broadcast без изменений — оставил как был)
     try:
         spreadsheet = await async_open(MAIN_SHEET_ID)
         rassylka = await async_worksheet(spreadsheet, "Рассылка")
         clients_sheet = await async_worksheet(spreadsheet, "Clients")
-        
+       
         data = await asyncio.to_thread(rassylka.get_all_values)
         clients_data = await asyncio.to_thread(clients_sheet.get_all_values)
-        
+       
         phone_to_tg = {}
         for row in clients_data[1:]:
             if isinstance(row, (list, tuple)) and len(row) > 1:
@@ -228,40 +215,36 @@ async def broadcast_cmd(event: types.MessageCreated):
                     tg_id = str(row[1]).strip()
                     if tg_id and tg_id != "0":
                         phone_to_tg[phone_norm] = tg_id
-        
+       
         status_updates = []
         time_updates = []
-        
         sent = 0
         skipped = 0
         errors = 0
         batch_counter = 0
-        
+       
         for i, row in enumerate(data[1:], start=2):
             if not isinstance(row, (list, tuple)) or len(row) < 9:
                 continue
-            
+           
             status = str(row[8]).strip().lower() if len(row) > 8 else ""
             if status not in ("новый", ""):
                 continue
-            
+           
             phone_raw = str(row[2]) if len(row) > 2 else ""
             shop_number = str(row[4]).strip() if len(row) > 4 else "—"
             amount = str(row[5]).strip() if len(row) > 5 else "—"
             link = str(row[6]).strip() if len(row) > 6 else ""
             period = str(row[7]).strip() if len(row) > 7 else "—"
-            
+           
             phone_norm = normalize_phone(phone_raw)
             if not phone_norm:
                 continue
-            
+           
             tg_id = phone_to_tg.get(phone_norm)
-            
+           
             if not tg_id:
-                status_updates.append({
-                    "range": f"I{i}",
-                    "values": [["нет chat ID"]]
-                })
+                status_updates.append({"range": f"I{i}", "values": [["нет chat ID"]]})
                 skipped += 1
                 batch_counter += 1
             else:
@@ -269,33 +252,24 @@ async def broadcast_cmd(event: types.MessageCreated):
 Сумма {amount}
 За период {period}
 {link}"""
-                
+               
                 try:
                     await bot.send_message(chat_id=int(tg_id), text=text)
                     now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                    
-                    status_updates.append({
-                        "range": f"I{i}",
-                        "values": [["отправлено"]]
-                    })
-                    time_updates.append({
-                        "range": f"J{i}",
-                        "values": [[now]]
-                    })
-                    
+                   
+                    status_updates.append({"range": f"I{i}", "values": [["отправлено"]]})
+                    time_updates.append({"range": f"J{i}", "values": [[now]]})
+                   
                     sent += 1
                     batch_counter += 2
                     await asyncio.sleep(0.5)
-                    
+                   
                 except Exception as e:
                     err_text = str(e)[:80]
-                    status_updates.append({
-                        "range": f"I{i}",
-                        "values": [[f"ошибка: {err_text}"]]
-                    })
+                    status_updates.append({"range": f"I{i}", "values": [[f"ошибка: {err_text}"]]})
                     errors += 1
                     batch_counter += 1
-            
+           
             if batch_counter >= 50:
                 if status_updates:
                     await asyncio.to_thread(rassylka.batch_update, status_updates, value_input_option="RAW")
@@ -305,18 +279,17 @@ async def broadcast_cmd(event: types.MessageCreated):
                     time_updates = []
                 batch_counter = 0
                 await asyncio.sleep(1)
-        
+       
         if status_updates:
             await asyncio.to_thread(rassylka.batch_update, status_updates, value_input_option="RAW")
         if time_updates:
             await asyncio.to_thread(rassylka.batch_update, time_updates, value_input_option="RAW")
-        
+       
         await event.message.answer(f"""🎉 РАССЫЛКА ЗАВЕРШЕНА!
 ✅ Отправлено: {sent}
 ⏭ Пропущено: {skipped}
-❌ Ошибок: {errors}
-💡 Batch-обновления уменьшили запросы к API""")
-        
+❌ Ошибок: {errors}""")
+       
     except Exception as e:
         print(f"CRITICAL BROADCAST ERROR: {e}")
         await event.message.answer(f"❌ Критическая ошибка рассылки: {str(e)}")
@@ -342,19 +315,28 @@ async def handle_manual_phone(event: types.MessageCreated):
 # ================= ЗАПУСК =================
 async def on_startup():
     global gc
-    creds = Credentials.from_service_account_info(
-        GOOGLE_CREDS,
-        scopes=["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
-    )
-    gc = gspread.authorize(creds)
-    
+    try:
+        creds = Credentials.from_service_account_info(
+            GOOGLE_CREDS,
+            scopes=["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
+        )
+        gc = gspread.authorize(creds)
+        print("✅ Google Sheets подключён")
+    except Exception as e:
+        print(f"❌ ОШИБКА Google CREDS: {e}")
+        raise
+
     webhook_url = f"{BASE_WEBHOOK_URL.rstrip('/')}{WEBHOOK_PATH}"
-    await bot.set_webhook(webhook_url)
-    print(f"✅ Webhook установлен: {webhook_url}")
+    try:
+        await bot.set_webhook(webhook_url)
+        print(f"✅ Webhook успешно установлен в MAX: {webhook_url}")
+    except Exception as e:
+        print(f"❌ ОШИБКА установки webhook: {e}")
+        raise
 
 
 async def webhook_handler(request):
-    """Обработчик входящих webhook от Мах"""
+    """Обработчик входящих webhook от МАХ"""
     try:
         data = await request.json()
         update = types.Update(**data)
@@ -365,29 +347,39 @@ async def webhook_handler(request):
         return web.Response(status=500)
 
 
+async def health_handler(request):
+    """Простая проверка здоровья для Render (ОБЯЗАТЕЛЬНО!)"""
+    return web.Response(text="OK", status=200)
+
+
 async def main():
-    if not BASE_WEBHOOK_URL:
-        print("❌ Укажи BASE_WEBHOOK_URL!")
-        return
-    
+    # Проверяем обязательные переменные
     if not MAX_TOKEN:
         print("❌ Укажи MAX_TOKEN!")
         return
-    
+    if not BASE_WEBHOOK_URL:
+        print("❌ Укажи BASE_WEBHOOK_URL (реальный адрес на Render)!")
+        return
+    if not ADMIN_ID or not MAIN_SHEET_ID:
+        print("❌ Укажи ADMIN_ID и MAIN_SHEET_ID!")
+
     dp.startup.register(on_startup)
-    print("✅ Бот запущен | Мах + Webhook")
-    
+    print("✅ Бот запускается | MAX + Webhook")
+
     app = web.Application()
     app.router.add_post(WEBHOOK_PATH, webhook_handler)
-   
+    app.router.add_get("/", health_handler)          # ← ЭТО ИСПРАВЛЕНИЕ health check
+    app.router.add_get("/health", health_handler)    # на всякий случай
+
     runner = web.AppRunner(app)
     await runner.setup()
     site = web.TCPSite(runner, host=WEBAPP_HOST, port=WEBAPP_PORT)
     await site.start()
-    
+   
     print(f"🌐 Сервер запущен на {WEBAPP_HOST}:{WEBAPP_PORT}")
-    print(f"📍 Webhook endpoint: {WEBHOOK_PATH}")
-    
+    print(f"📍 Webhook: {WEBHOOK_PATH}")
+    print(f"📍 Health check: / и /health")
+   
     await asyncio.Event().wait()
 
 
