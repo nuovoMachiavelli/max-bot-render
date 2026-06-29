@@ -2,7 +2,7 @@ import asyncio
 import json
 import logging
 import os
-import aiohttp               # <-- ЭТО СТРОКА БЫЛА ПРОПУЩЕНА
+import aiohttp
 from aiohttp import web
 
 from config import MAX_BOT_TOKEN, ADMIN_USER_ID, GOOGLE_CREDS_JSON, WEBHOOK_URL, WEBHOOK_PATH, PORT
@@ -28,6 +28,7 @@ async def webhook_handler(request):
 
         update_type = data.get('update_type')
         user_id = None
+
         if 'user' in data and data['user']:
             user_id = data['user'].get('user_id')
         elif 'message' in data and data['message'].get('sender'):
@@ -69,6 +70,7 @@ async def webhook_handler(request):
                 if text == '/sync' and user_id == ADMIN_USER_ID:
                     await sync_command(user_id)
                     return web.Response(status=200)
+
                 if text == '/broadcast' and user_id == ADMIN_USER_ID:
                     await broadcast_command(user_id)
                     return web.Response(status=200)
@@ -79,27 +81,43 @@ async def webhook_handler(request):
                     await process_phone(phone_norm, user_id)
                 else:
                     await max_client.send_message(user_id, "Пожалуйста, отправьте номер в правильном формате (только цифры).")
+
                 return web.Response(status=200)
 
         return web.Response(status=200)
+
     except Exception as e:
         logging.exception("Error in webhook")
         return web.Response(status=500)
 
+
 async def set_webhook():
     url = f"{WEBHOOK_URL}{WEBHOOK_PATH}"
-    headers = {"Authorization": MAX_BOT_TOKEN, "Content-Type": "application/json"}
+
+    headers = {
+        "Authorization": MAX_BOT_TOKEN,
+        "Content-Type": "application/json"
+    }
+
     payload = {
         "url": url,
         "update_types": ["message_created", "bot_started"]
     }
+
+    # 🔥 ВАЖНО: новый API
     async with aiohttp.ClientSession() as session:
-        async with session.post("https://platform-api.max.ru/subscriptions", headers=headers, json=payload) as resp:
+        async with session.post(
+            "https://platform-api2.max.ru/subscriptions",
+            headers=headers,
+            json=payload
+        ) as resp:
+
             if resp.status == 200:
                 logging.info(f"Webhook successfully set to {url}")
             else:
                 text = await resp.text()
                 logging.error(f"Failed to set webhook: {resp.status} {text}")
+
 
 async def main():
     try:
@@ -113,12 +131,17 @@ async def main():
 
     app = web.Application()
     app.router.add_post(WEBHOOK_PATH, webhook_handler)
+
     runner = web.AppRunner(app)
     await runner.setup()
+
     site = web.TCPSite(runner, host='0.0.0.0', port=PORT)
     await site.start()
+
     logging.info(f"Server started on port {PORT}, webhook path {WEBHOOK_PATH}")
+
     await asyncio.Event().wait()
+
 
 if __name__ == "__main__":
     asyncio.run(main())
