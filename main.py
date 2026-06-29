@@ -14,6 +14,9 @@ logging.basicConfig(level=logging.INFO)
 
 max_client = MaxClient()
 
+# 🔥 ДОБАВЛЕНО: защита от повторной обработки webhook
+PROCESSED_EVENTS = set()
+
 print("=== STARTING BOT ===")
 print(f"MAX_BOT_TOKEN set: {bool(MAX_BOT_TOKEN)}")
 print(f"ADMIN_USER_ID: {ADMIN_USER_ID}")
@@ -21,10 +24,32 @@ print(f"MAIN_SHEET_ID: {os.getenv('MAIN_SHEET_ID')}")
 print(f"WEBHOOK_URL: {WEBHOOK_URL}")
 print(f"PORT: {PORT}")
 
+
 async def webhook_handler(request):
     try:
         data = await request.json()
         logging.info(f"Received update: {json.dumps(data, indent=2)}")
+
+        # 🔥 ДОБАВЛЕНО: защита от дублей webhook
+        event_id = None
+
+        if isinstance(data, dict):
+            event_id = (
+                data.get("event_id")
+                or data.get("update_id")
+                or data.get("message", {}).get("message_id")
+            )
+
+        if not event_id:
+            event_id = hash(json.dumps(data, sort_keys=True))
+
+        if event_id in PROCESSED_EVENTS:
+            return web.Response(status=200)
+
+        PROCESSED_EVENTS.add(event_id)
+
+        if len(PROCESSED_EVENTS) > 5000:
+            PROCESSED_EVENTS.clear()
 
         update_type = data.get('update_type')
         user_id = None
@@ -104,7 +129,6 @@ async def set_webhook():
         "update_types": ["message_created", "bot_started"]
     }
 
-    # 🔥 ВАЖНО: новый API
     async with aiohttp.ClientSession() as session:
         async with session.post(
             "https://platform-api2.max.ru/subscriptions",
