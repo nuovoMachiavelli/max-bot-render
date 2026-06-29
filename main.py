@@ -14,9 +14,6 @@ logging.basicConfig(level=logging.INFO)
 
 max_client = MaxClient()
 
-# 🔥 ДОБАВЛЕНО: защита от повторной обработки webhook
-PROCESSED_EVENTS = set()
-
 print("=== STARTING BOT ===")
 print(f"MAX_BOT_TOKEN set: {bool(MAX_BOT_TOKEN)}")
 print(f"ADMIN_USER_ID: {ADMIN_USER_ID}")
@@ -25,32 +22,9 @@ print(f"WEBHOOK_URL: {WEBHOOK_URL}")
 print(f"PORT: {PORT}")
 
 
-async def webhook_handler(request):
+async def handle_update(data):
+    """фон обработка"""
     try:
-        data = await request.json()
-        logging.info(f"Received update: {json.dumps(data, indent=2)}")
-
-        # 🔥 ДОБАВЛЕНО: защита от дублей webhook
-        event_id = None
-
-        if isinstance(data, dict):
-            event_id = (
-                data.get("event_id")
-                or data.get("update_id")
-                or data.get("message", {}).get("message_id")
-            )
-
-        if not event_id:
-            event_id = hash(json.dumps(data, sort_keys=True))
-
-        if event_id in PROCESSED_EVENTS:
-            return web.Response(status=200)
-
-        PROCESSED_EVENTS.add(event_id)
-
-        if len(PROCESSED_EVENTS) > 5000:
-            PROCESSED_EVENTS.clear()
-
         update_type = data.get('update_type')
         user_id = None
 
@@ -60,7 +34,7 @@ async def webhook_handler(request):
             user_id = data['message']['sender'].get('user_id')
 
         if not user_id:
-            return web.Response(status=200)
+            return
 
         if update_type == 'bot_started':
             keyboard = [[{
@@ -72,7 +46,7 @@ async def webhook_handler(request):
                 "Привет! Нажмите кнопку ниже, чтобы поделиться номером телефона, или отправьте номер цифрами.",
                 keyboard=keyboard
             )
-            return web.Response(status=200)
+            return
 
         if update_type == 'message_created':
             message = data.get('message', {})
@@ -82,23 +56,22 @@ async def webhook_handler(request):
 
             for att in attachments:
                 if att.get('type') == 'contact':
-                    contact_payload = att.get('payload', {})
-                    phone_raw = contact_payload.get('phone_number', '')
+                    phone_raw = att.get('payload', {}).get('phone_number', '')
                     phone_norm = normalize_phone(phone_raw)
                     if phone_norm:
                         await process_phone(phone_norm, user_id)
                     else:
                         await max_client.send_message(user_id, "❌ Не удалось распознать номер.")
-                    return web.Response(status=200)
+                    return
 
             if text:
                 if text == '/sync' and user_id == ADMIN_USER_ID:
                     await sync_command(user_id)
-                    return web.Response(status=200)
+                    return
 
                 if text == '/broadcast' and user_id == ADMIN_USER_ID:
                     await broadcast_command(user_id)
-                    return web.Response(status=200)
+                    return
 
                 phone_norm = normalize_phone(text)
                 if phone_norm:
@@ -107,13 +80,18 @@ async def webhook_handler(request):
                 else:
                     await max_client.send_message(user_id, "Пожалуйста, отправьте номер в правильном формате (только цифры).")
 
-                return web.Response(status=200)
-
-        return web.Response(status=200)
-
     except Exception as e:
-        logging.exception("Error in webhook")
-        return web.Response(status=500)
+        logging.exception(e)
+
+
+async def webhook_handler(request):
+    data = await request.json()
+    logging.info(f"Received update: {json.dumps(data, indent=2)}")
+
+    # 🔥 СРАЗУ отвечаем MAX — это КРИТИЧНО
+    asyncio.create_task(handle_update(data))
+
+    return web.Response(status=200)
 
 
 async def set_webhook():
@@ -140,16 +118,11 @@ async def set_webhook():
                 logging.info(f"Webhook successfully set to {url}")
             else:
                 text = await resp.text()
-                logging.error(f"Failed to set webhook: {resp.status} {text}")
+                logging.error(f"Failed webhook: {resp.status} {text}")
 
 
 async def main():
-    try:
-        init_google_sheets(GOOGLE_CREDS_JSON)
-        print("Google Sheets initialized")
-    except Exception as e:
-        print(f"Google Sheets init error: {e}")
-        raise
+    init_google_sheets(GOOGLE_CREDS_JSON)
 
     await set_webhook()
 
@@ -162,7 +135,7 @@ async def main():
     site = web.TCPSite(runner, host='0.0.0.0', port=PORT)
     await site.start()
 
-    logging.info(f"Server started on port {PORT}, webhook path {WEBHOOK_PATH}")
+    logging.info("Bot started")
 
     await asyncio.Event().wait()
 
