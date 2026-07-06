@@ -7,7 +7,7 @@ class MaxAPIError(Exception):
 class MaxClient:
     def __init__(self):
         self.token = MAX_BOT_TOKEN
-        self.base = "https://platform-api.max.ru"
+        self.base = "https://platform-api2.max.ru"
         self.headers = {
             "Authorization": self.token,
             "Content-Type": "application/json"
