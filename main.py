@@ -5,9 +5,24 @@ import os
 import aiohttp
 from aiohttp import web
 
-from config import MAX_BOT_TOKEN, ADMIN_USER_ID, GOOGLE_CREDS_JSON, WEBHOOK_URL, WEBHOOK_PATH, PORT
+from config import (
+    MAX_BOT_TOKEN,
+    ADMIN_USER_ID,
+    GOOGLE_CREDS_JSON,
+    WEBHOOK_URL,
+    WEBHOOK_PATH,
+    PORT
+)
+
 from google_sheets import init_google_sheets
-from handlers import process_phone, sync_command, broadcast_command, normalize_phone
+from handlers import (
+    process_phone,
+    sync_command,
+    broadcast_command,
+    normalize_phone,
+    subscriptions_command   # 🔥 ДОБАВИЛИ
+)
+
 from max_api import MaxClient
 
 logging.basicConfig(level=logging.INFO)
@@ -73,12 +88,20 @@ async def handle_update(data):
                     await broadcast_command(user_id)
                     return
 
+                # 🔥 НОВАЯ КОМАНДА
+                if text == '/subscriptions' and user_id == ADMIN_USER_ID:
+                    await subscriptions_command(user_id)
+                    return
+
                 phone_norm = normalize_phone(text)
                 if phone_norm:
                     await max_client.send_message(user_id, "🔍 Проверяю номер...")
                     await process_phone(phone_norm, user_id)
                 else:
-                    await max_client.send_message(user_id, "Пожалуйста, отправьте номер в правильном формате (только цифры).")
+                    await max_client.send_message(
+                        user_id,
+                        "Пожалуйста, отправьте номер в правильном формате (только цифры)."
+                    )
 
     except Exception as e:
         logging.exception(e)
@@ -88,7 +111,7 @@ async def webhook_handler(request):
     data = await request.json()
     logging.info(f"Received update: {json.dumps(data, indent=2)}")
 
-    # 🔥 СРАЗУ отвечаем MAX — это КРИТИЧНО
+    # ⚡ сразу отвечаем MAX
     asyncio.create_task(handle_update(data))
 
     return web.Response(status=200)
