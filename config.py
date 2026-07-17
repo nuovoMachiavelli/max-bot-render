@@ -7,7 +7,7 @@ MAX_BOT_TOKEN = os.getenv("MAX_BOT_TOKEN")
 ADMIN_USER_ID = int(os.getenv("ADMIN_USER_ID", "0"))
 MAIN_SHEET_ID = os.getenv("MAIN_SHEET_ID")
 GOOGLE_CREDS_JSON = os.getenv("GOOGLE_CREDS")  # строка JSON
-WEBHOOK_URL = os.getenv("MAX_WEBHOOK_URL", "").rstrip("/")
+WEBHOOK_URL = os.getenv("WEBHOOK_URL", "").rstrip("/")
 WEBHOOK_PATH = os.getenv("WEBHOOK_PATH", "/webhook")
 PORT = int(os.getenv("PORT", "8080"))
 
