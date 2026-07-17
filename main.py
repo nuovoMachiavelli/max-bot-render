@@ -3,9 +3,6 @@ import json
 import logging
 import os
 import aiohttp
-import ssl
-import certifi
-
 from aiohttp import web
 
 from config import (
@@ -48,28 +45,32 @@ async def handle_update(data):
 
     try:
 
-        update_type = data.get('update_type')
+        update_type = data.get("update_type")
 
         user_id = None
 
 
-        if 'user' in data and data['user']:
-            user_id = data['user'].get('user_id')
+        if "user" in data and data["user"]:
+            user_id = data["user"].get("user_id")
 
-        elif 'message' in data and data['message'].get('sender'):
-            user_id = data['message']['sender'].get('user_id')
+
+        elif "message" in data and data["message"].get("sender"):
+            user_id = data["message"]["sender"].get("user_id")
 
 
         if not user_id:
             return
 
 
-        if update_type == 'bot_started':
+        if update_type == "bot_started":
 
-            keyboard = [[{
-                "type": "request_contact",
-                "text": "📱 Поделиться номером"
-            }]]
+            keyboard = [[
+                {
+                    "type": "request_contact",
+                    "text": "📱 Поделиться номером"
+                }
+            ]]
+
 
             await max_client.send_message(
                 user_id,
@@ -80,32 +81,41 @@ async def handle_update(data):
             return
 
 
-        if update_type == 'message_created':
 
-            message = data.get('message', {})
+        if update_type == "message_created":
 
-            body = message.get('body', {})
 
-            text = body.get('text', '')
+            message = data.get("message", {})
 
-            attachments = body.get('attachments', [])
+            body = message.get("body", {})
+
+            text = body.get("text", "")
+
+            attachments = body.get("attachments", [])
+
 
 
             for att in attachments:
 
-                if att.get('type') == 'contact':
+                if att.get("type") == "contact":
 
-                    phone_raw = att.get('payload', {}).get('phone_number', '')
+                    phone_raw = att.get("payload", {}).get(
+                        "phone_number",
+                        ""
+                    )
 
                     phone_norm = normalize_phone(phone_raw)
 
+
                     if phone_norm:
+
                         await process_phone(
                             phone_norm,
                             user_id
                         )
 
                     else:
+
                         await max_client.send_message(
                             user_id,
                             "❌ Не удалось распознать номер."
@@ -114,21 +124,32 @@ async def handle_update(data):
                     return
 
 
+
             if text:
 
-                if text == '/sync' and user_id == ADMIN_USER_ID:
+
+                if text == "/sync" and user_id == ADMIN_USER_ID:
+
                     await sync_command(user_id)
+
                     return
 
 
-                if text == '/broadcast' and user_id == ADMIN_USER_ID:
+
+                if text == "/broadcast" and user_id == ADMIN_USER_ID:
+
                     await broadcast_command(user_id)
+
                     return
 
 
-                if text == '/subscriptions' and user_id == ADMIN_USER_ID:
+
+                if text == "/subscriptions" and user_id == ADMIN_USER_ID:
+
                     await subscriptions_command(user_id)
+
                     return
+
 
 
                 phone_norm = normalize_phone(text)
@@ -141,22 +162,29 @@ async def handle_update(data):
                         "🔍 Проверяю номер..."
                     )
 
+
                     await process_phone(
                         phone_norm,
                         user_id
                     )
 
+
                 else:
+
 
                     await max_client.send_message(
                         user_id,
-                        "Пожалуйста, отправьте номер в правильном формате."
+                        "Пожалуйста, отправьте номер телефона."
                     )
 
 
     except Exception:
 
-        logging.exception("UPDATE ERROR")
+        logging.exception(
+            "HANDLE UPDATE ERROR"
+        )
+
+
 
 
 
@@ -164,8 +192,9 @@ async def webhook_handler(request):
 
     data = await request.json()
 
+
     logging.info(
-        f"Received update: {json.dumps(data, indent=2)}"
+        f"Received update: {json.dumps(data, indent=2, ensure_ascii=False)}"
     )
 
 
@@ -174,19 +203,39 @@ async def webhook_handler(request):
     )
 
 
-    return web.Response(status=200)
+    return web.Response(
+        status=200
+    )
+
+
 
 
 
 async def set_webhook():
 
+
+    if not WEBHOOK_URL:
+
+        logging.error(
+            "WEBHOOK_URL пустой! Проверь переменные BotHost"
+        )
+
+        return
+
+
+
     url = f"{WEBHOOK_URL}{WEBHOOK_PATH}"
 
 
+
     headers = {
+
         "Authorization": MAX_BOT_TOKEN,
+
         "Content-Type": "application/json"
+
     }
+
 
 
     payload = {
@@ -194,16 +243,24 @@ async def set_webhook():
         "url": url,
 
         "update_types": [
+
             "message_created",
+
             "bot_started"
+
         ]
+
     }
 
 
-    ssl_context = ssl.create_default_context(
-        cafile=certifi.where()
+
+    logging.info(
+        f"SETTING WEBHOOK: {url}"
     )
 
+
+
+    # исправление SSL BotHost
 
     connector = aiohttp.TCPConnector(
         ssl=False
@@ -226,16 +283,21 @@ async def set_webhook():
         ) as resp:
 
 
+
             text = await resp.text()
+
 
 
             if resp.status == 200:
 
+
                 logging.info(
-                    f"Webhook successfully set: {url}"
+                    "Webhook successfully set"
                 )
 
+
             else:
+
 
                 logging.error(
                     f"Webhook error {resp.status}: {text}"
@@ -243,17 +305,32 @@ async def set_webhook():
 
 
 
+
+
+
 async def main():
+
+
+    if not GOOGLE_CREDS_JSON:
+
+        raise Exception(
+            "GOOGLE_CREDS пустой"
+        )
+
+
 
     init_google_sheets(
         GOOGLE_CREDS_JSON
     )
 
 
+
     await set_webhook()
 
 
+
     app = web.Application()
+
 
 
     app.router.add_post(
@@ -262,27 +339,40 @@ async def main():
     )
 
 
-    runner = web.AppRunner(app)
+
+    runner = web.AppRunner(
+        app
+    )
+
 
     await runner.setup()
 
 
+
     site = web.TCPSite(
+
         runner,
+
         host="0.0.0.0",
+
         port=PORT
+
     )
 
 
     await site.start()
 
 
+
     logging.info(
-        "Bot started"
+        "BOT STARTED"
     )
 
 
+
     await asyncio.Event().wait()
+
+
 
 
 
