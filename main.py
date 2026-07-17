@@ -206,7 +206,7 @@ async def set_webhook():
 
 
     connector = aiohttp.TCPConnector(
-        ssl=ssl_context
+        ssl=False
     )
 
 
