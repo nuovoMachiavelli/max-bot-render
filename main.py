@@ -224,7 +224,7 @@ async def set_webhook():
 
 
 
-    url = f"{WEBHOOK_URL}{WEBHOOK_PATH}"
+    url = WEBHOOK_URL
 
 
 
