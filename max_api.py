@@ -1,6 +1,4 @@
 import aiohttp
-import ssl
-import certifi
 
 from config import MAX_BOT_TOKEN
 
@@ -10,18 +8,17 @@ class MaxAPIError(Exception):
 
 
 class MaxClient:
+
     def __init__(self):
+
         self.token = MAX_BOT_TOKEN
+
         self.base = "https://platform-api2.max.ru"
 
         self.headers = {
             "Authorization": self.token,
             "Content-Type": "application/json"
         }
-
-        self.ssl_context = ssl.create_default_context(
-            cafile=certifi.where()
-        )
 
 
     async def _request(
@@ -31,15 +28,19 @@ class MaxClient:
         params: dict = None,
         data: dict = None
     ):
+
         url = f"{self.base}{endpoint}"
 
+
         connector = aiohttp.TCPConnector(
-            ssl=self.ssl_context
+            ssl=False
         )
+
 
         async with aiohttp.ClientSession(
             connector=connector
         ) as session:
+
 
             async with session.request(
                 method,
@@ -49,13 +50,22 @@ class MaxClient:
                 json=data
             ) as resp:
 
+
+                text = await resp.text()
+
+
                 if resp.status != 200:
-                    text = await resp.text()
+
                     raise MaxAPIError(
                         f"HTTP {resp.status}: {text}"
                     )
 
-                return await resp.json()
+
+                if text:
+                    return await resp.json()
+
+                return None
+
 
 
     async def send_message(
@@ -65,20 +75,25 @@ class MaxClient:
         keyboard=None,
         format=None
     ):
+
         payload = {
             "text": text
         }
 
+
         if format:
             payload["format"] = format
 
+
         if keyboard:
+
             payload["attachments"] = [{
                 "type": "inline_keyboard",
                 "payload": {
                     "buttons": keyboard
                 }
             }]
+
 
         return await self._request(
             "POST",
@@ -90,11 +105,13 @@ class MaxClient:
         )
 
 
+
     async def send_action(
         self,
         chat_id: int,
         action: str
     ):
+
         return await self._request(
             "POST",
             f"/chats/{chat_id}/actions",
@@ -104,17 +121,21 @@ class MaxClient:
         )
 
 
+
     async def get_subscriptions(self):
+
         return await self._request(
             "GET",
             "/subscriptions"
         )
 
 
+
     async def delete_subscription(
         self,
         url: str
     ):
+
         return await self._request(
             "DELETE",
             "/subscriptions",
