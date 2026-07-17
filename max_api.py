@@ -1,21 +1,46 @@
 import aiohttp
+import ssl
+import certifi
+
 from config import MAX_BOT_TOKEN
+
 
 class MaxAPIError(Exception):
     pass
+
 
 class MaxClient:
     def __init__(self):
         self.token = MAX_BOT_TOKEN
         self.base = "https://platform-api2.max.ru"
+
         self.headers = {
             "Authorization": self.token,
             "Content-Type": "application/json"
         }
 
-    async def _request(self, method: str, endpoint: str, params: dict = None, data: dict = None):
+        self.ssl_context = ssl.create_default_context(
+            cafile=certifi.where()
+        )
+
+
+    async def _request(
+        self,
+        method: str,
+        endpoint: str,
+        params: dict = None,
+        data: dict = None
+    ):
         url = f"{self.base}{endpoint}"
-        async with aiohttp.ClientSession() as session:
+
+        connector = aiohttp.TCPConnector(
+            ssl=self.ssl_context
+        )
+
+        async with aiohttp.ClientSession(
+            connector=connector
+        ) as session:
+
             async with session.request(
                 method,
                 url,
@@ -26,12 +51,23 @@ class MaxClient:
 
                 if resp.status != 200:
                     text = await resp.text()
-                    raise MaxAPIError(f"HTTP {resp.status}: {text}")
+                    raise MaxAPIError(
+                        f"HTTP {resp.status}: {text}"
+                    )
 
                 return await resp.json()
 
-    async def send_message(self, user_id: int, text: str, keyboard=None, format=None):
-        payload = {"text": text}
+
+    async def send_message(
+        self,
+        user_id: int,
+        text: str,
+        keyboard=None,
+        format=None
+    ):
+        payload = {
+            "text": text
+        }
 
         if format:
             payload["format"] = format
@@ -47,16 +83,26 @@ class MaxClient:
         return await self._request(
             "POST",
             "/messages",
-            params={"user_id": user_id},
+            params={
+                "user_id": user_id
+            },
             data=payload
         )
 
-    async def send_action(self, chat_id: int, action: str):
+
+    async def send_action(
+        self,
+        chat_id: int,
+        action: str
+    ):
         return await self._request(
             "POST",
             f"/chats/{chat_id}/actions",
-            data={"action": action}
+            data={
+                "action": action
+            }
         )
+
 
     async def get_subscriptions(self):
         return await self._request(
@@ -64,7 +110,11 @@ class MaxClient:
             "/subscriptions"
         )
 
-    async def delete_subscription(self, url: str):
+
+    async def delete_subscription(
+        self,
+        url: str
+    ):
         return await self._request(
             "DELETE",
             "/subscriptions",
